@@ -7,11 +7,21 @@ __pycache__/
 __pycache__/
 *.pyc
 .env
+.env.example
 *.egg-info/
 .DS_Store
 
 # C extensions
 *.so
+
+$DAGSTER_HOME/
+dagster_home/
+dagster_pipeline/__pycache__/
+.dagster/
+logs/
+tmp/
+storage/
+history/
 
 # Distribution / packaging
 .Python
@@ -223,3 +233,42 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+venv/
+__pycache__/
+*.pyc
+.env
+ml/shap_plots/
+/tmp/
+
+# Dagster
+.tmp_dagster_home*/
+.user.yml
+dagster_home/
+$DAGSTER_HOME/
+
+# ML outputs
+ml/shap_plots/
+ml/model.joblib
+ml/model_meta.json
+ml/shap_explanations.json
+
+# Spark
+/tmp/pulseearth_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+
+# Env
+.env
+
+# dbt
+transform/target/
+transform/logs/
+transform/dbt_packages/
+
+# Docker
+*.log

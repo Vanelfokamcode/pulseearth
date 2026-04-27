@@ -1,0 +1,19 @@
+# transform/dbt_project.yml
+name: pulseearth
+version: "1.0.0"
+config-version: 2
+
+profile: pulseearth
+
+model-paths: ["models"]
+test-paths: ["tests"]
+snapshot-paths: ["snapshots"]
+
+models:
+  pulseearth:
+    staging:
+      +materialized: view          # staging = vues légères
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table         # marts = tables matérialisées

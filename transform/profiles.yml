@@ -1,0 +1,13 @@
+# transform/profiles.yml
+pulseearth:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      schema: pulseearth
+      host: localhost
+      port: 8123
+      user: pulse
+      password: earth2026
+      secure: false
+      verify: false

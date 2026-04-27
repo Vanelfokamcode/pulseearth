@@ -1,0 +1,396 @@
+<!-- frontend/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseEarth — Real-time Earth Monitor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000510; color: #e0e8ff; font-family: 'Courier New', monospace; overflow: hidden; }
+    canvas { display: block; }
+
+    #ui {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 16px 24px;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #title { font-size: 22px; font-weight: bold; letter-spacing: 3px; color: #7df9ff; }
+    #subtitle { font-size: 11px; color: #4a7fa5; letter-spacing: 2px; margin-top: 2px; }
+
+    #stats {
+      display: flex; gap: 24px; font-size: 12px;
+      background: rgba(0,5,20,0.7);
+      border: 1px solid #1a3a5c;
+      padding: 10px 16px; border-radius: 4px;
+    }
+    .stat { display: flex; flex-direction: column; align-items: center; }
+    .stat-value { font-size: 20px; font-weight: bold; color: #7df9ff; }
+    .stat-label { font-size: 9px; color: #4a7fa5; letter-spacing: 1px; margin-top: 2px; }
+
+    #legend {
+      position: fixed; bottom: 24px; left: 24px;
+      background: rgba(0,5,20,0.8);
+      border: 1px solid #1a3a5c;
+      padding: 12px 16px; border-radius: 4px;
+      font-size: 11px; z-index: 10;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+    #detail {
+      position: fixed; bottom: 24px; right: 24px;
+      background: rgba(0,5,20,0.9);
+      border: 1px solid #1a3a5c;
+      padding: 16px; border-radius: 4px;
+      font-size: 12px; min-width: 260px;
+      display: none; z-index: 10;
+    }
+    #detail h3 { color: #7df9ff; margin-bottom: 8px; font-size: 13px; }
+    #detail p { color: #8ab0cc; margin: 3px 0; }
+    #detail span { color: #e0e8ff; }
+
+    #status {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      font-size: 10px; color: #4a7fa5; letter-spacing: 2px;
+      z-index: 10;
+    }
+    .connected { color: #00ff88 !important; }
+  </style>
+</head>
+<body>
+
+<div id="ui">
+  <div>
+    <div id="title">🌍 PULSEEARTH</div>
+    <div id="subtitle">REAL-TIME EARTH MONITOR</div>
+  </div>
+  <div id="stats">
+    <div class="stat">
+      <div class="stat-value" id="eq-count">—</div>
+      <div class="stat-label">EARTHQUAKES 24H</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="fire-count">—</div>
+      <div class="stat-label">ACTIVE FIRES</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="max-mag">—</div>
+      <div class="stat-label">MAX MAG 24H</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="ws-count">0</div>
+      <div class="stat-label">LIVE CLIENTS</div>
+    </div>
+  </div>
+</div>
+
+<div id="status">● CONNECTING...</div>
+
+<div id="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#ff4444"></div> Earthquake</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ff8c00"></div> Wildfire</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00bfff"></div> Pollution (PM2.5)</div>
+</div>
+
+<div id="detail">
+  <h3 id="detail-title">—</h3>
+  <div id="detail-body"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const API = 'http://localhost:8000';
+const WS  = 'ws://localhost:8000/ws';
+
+// ── Scene setup ──────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 2.8);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping    = true;
+controls.dampingFactor    = 0.05;
+controls.minDistance      = 1.3;
+controls.maxDistance      = 8;
+controls.autoRotate       = true;
+controls.autoRotateSpeed  = 0.3;
+
+// ── Starfield ────────────────────────────────────────────────────────────────
+const starGeo  = new THREE.BufferGeometry();
+const starVerts = [];
+for (let i = 0; i < 8000; i++) {
+  starVerts.push((Math.random() - 0.5) * 600);
+  starVerts.push((Math.random() - 0.5) * 600);
+  starVerts.push((Math.random() - 0.5) * 600);
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3 })));
+
+// ── Globe ────────────────────────────────────────────────────────────────────
+const RADIUS = 1;
+const loader  = new THREE.TextureLoader();
+
+const earthMat = new THREE.MeshPhongMaterial({
+  map:         loader.load('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg'),
+  specularMap: loader.load('https://unpkg.com/three-globe/example/img/earth-water.png'),
+  specular:    new THREE.Color(0x333333),
+  shininess:   15,
+});
+const globe = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 64, 64), earthMat);
+scene.add(globe);
+
+// Atmosphere glow
+const atmosMat = new THREE.MeshPhongMaterial({
+  color:       0x4488ff,
+  transparent: true,
+  opacity:     0.08,
+  side:        THREE.BackSide,
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(RADIUS * 1.02, 64, 64), atmosMat));
+
+// ── Lighting ─────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x333355, 0.8));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(5, 3, 5);
+scene.add(sun);
+
+// ── Geo → 3D ─────────────────────────────────────────────────────────────────
+function latLonToVec3(lat, lon, r = RADIUS) {
+  const phi   = (90 - lat) * (Math.PI / 180);
+  const theta = (lon + 180) * (Math.PI / 180);
+  return new THREE.Vector3(
+    -r * Math.sin(phi) * Math.cos(theta),
+     r * Math.cos(phi),
+     r * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+// ── Event markers ─────────────────────────────────────────────────────────────
+const markers   = [];
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
+
+function addEarthquake(eq) {
+  const size   = Math.max(0.005, (eq.mag || 1) * 0.008);
+  const color  = eq.mag >= 5 ? 0xff0000 : eq.mag >= 3 ? 0xff6644 : 0xff9966;
+  const geo    = new THREE.SphereGeometry(size, 8, 8);
+  const mat    = new THREE.MeshBasicMaterial({ color });
+  const mesh   = new THREE.Mesh(geo, mat);
+  const pos    = latLonToVec3(eq.lat, eq.lon, RADIUS + 0.01);
+  mesh.position.copy(pos);
+  mesh.userData = { type: 'earthquake', data: eq };
+  scene.add(mesh);
+  markers.push(mesh);
+
+  // Pulse ring
+  addPulse(pos, color);
+}
+
+function addWildfire(wf) {
+  const size = Math.max(0.004, Math.log10(wf.frp + 1) * 0.006);
+  const geo  = new THREE.SphereGeometry(size, 6, 6);
+  const mat  = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(latLonToVec3(wf.lat, wf.lon, RADIUS + 0.008));
+  mesh.userData = { type: 'wildfire', data: wf };
+  scene.add(mesh);
+  markers.push(mesh);
+}
+
+function addPollution(pol) {
+  if (pol.value < 25) return; // skip propre
+  const opacity = Math.min(pol.value / 200, 0.6);
+  const size    = 0.012;
+  const geo     = new THREE.SphereGeometry(size, 6, 6);
+  const mat     = new THREE.MeshBasicMaterial({
+    color: 0x00bfff, transparent: true, opacity
+  });
+  const mesh    = new THREE.Mesh(geo, mat);
+  mesh.position.copy(latLonToVec3(pol.lat, pol.lon, RADIUS + 0.006));
+  mesh.userData = { type: 'pollution', data: pol };
+  scene.add(mesh);
+  markers.push(mesh);
+}
+
+// Pulse rings — anneau qui s'expand et disparaît
+const pulses = [];
+function addPulse(position, color) {
+  const geo  = new THREE.RingGeometry(0.01, 0.015, 32);
+  const mat  = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.8, side: THREE.DoubleSide
+  });
+  const ring = new THREE.Mesh(geo, mat);
+  ring.position.copy(position);
+  ring.lookAt(new THREE.Vector3(0, 0, 0));
+  scene.add(ring);
+  pulses.push({ mesh: ring, scale: 1, born: Date.now() });
+}
+
+// ── Stats & detail panel ──────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const r    = await fetch(`${API}/stats/global`);
+    const data = await r.json();
+    document.getElementById('eq-count').textContent  = data.earthquakes_24h;
+    document.getElementById('fire-count').textContent = data.wildfires_24h;
+    document.getElementById('max-mag').textContent    =
+      data.max_mag_24h ? data.max_mag_24h.toFixed(1) : '—';
+  } catch(e) { console.warn('Stats load failed', e); }
+}
+
+function showDetail(type, data) {
+  const panel = document.getElementById('detail');
+  const title = document.getElementById('detail-title');
+  const body  = document.getElementById('detail-body');
+  panel.style.display = 'block';
+
+  if (type === 'earthquake') {
+    title.textContent = `🌋 M${data.mag?.toFixed(1)} Earthquake`;
+    body.innerHTML = `
+      <p>Place: <span>${data.place || '—'}</span></p>
+      <p>Depth: <span>${data.depth_km?.toFixed(1)} km</span></p>
+      <p>Status: <span>${data.status || '—'}</span></p>
+      <p>Tsunami: <span>${data.tsunami ? '⚠️ Yes' : 'No'}</span></p>
+      <p>Time: <span>${data.event_time || '—'}</span></p>
+    `;
+  } else if (type === 'wildfire') {
+    title.textContent = `🔥 Active Wildfire`;
+    body.innerHTML = `
+      <p>FRP: <span>${data.frp?.toFixed(1)} MW</span></p>
+      <p>Brightness: <span>${data.brightness?.toFixed(1)} K</span></p>
+      <p>Confidence: <span>${data.confidence}</span></p>
+      <p>Satellite: <span>${data.satellite}</span></p>
+      <p>Time: <span>${data.acq_date} ${data.acq_time}</span></p>
+    `;
+  } else if (type === 'pollution') {
+    title.textContent = `💨 Pollution — ${data.parameter?.toUpperCase()}`;
+    body.innerHTML = `
+      <p>Value: <span>${data.value?.toFixed(1)} µg/m³</span></p>
+      <p>Country: <span>${data.country || '—'}</span></p>
+      <p>Station: <span>${data.location_id}</span></p>
+    `;
+  }
+}
+
+// ── Click detection ───────────────────────────────────────────────────────────
+window.addEventListener('click', (e) => {
+  mouse.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(markers);
+  if (hits.length > 0) {
+    const { type, data } = hits[0].object.userData;
+    showDetail(type, data);
+    controls.autoRotate = false;
+  } else {
+    document.getElementById('detail').style.display = 'none';
+    controls.autoRotate = true;
+  }
+});
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById('status');
+
+function connectWS() {
+  const ws = new WebSocket(WS);
+
+  ws.onopen = () => {
+    statusEl.textContent  = '● LIVE';
+    statusEl.className    = 'connected';
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg._type === 'initial_snapshot') {
+      (msg.earthquakes || []).forEach(addEarthquake);
+      loadStats();
+      return;
+    }
+    if (msg._type === 'earthquake') { addEarthquake(msg); loadStats(); }
+    if (msg._type === 'wildfire')   { addWildfire(msg); }
+    if (msg._type === 'pollution')  { addPollution(msg); }
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = '● RECONNECTING...';
+    statusEl.className   = '';
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+// ── Initial data load ─────────────────────────────────────────────────────────
+async function loadInitialData() {
+  try {
+    const [wfRes, polRes] = await Promise.all([
+      fetch(`${API}/wildfires/active?hours=24`),
+      fetch(`${API}/pollution/latest?parameter=pm25`),
+    ]);
+    const wfData  = await wfRes.json();
+    const polData = await polRes.json();
+    (wfData.data  || []).forEach(addWildfire);
+    (polData.data || []).forEach(addPollution);
+  } catch(e) { console.warn('Initial load failed', e); }
+}
+
+connectWS();
+loadInitialData();
+loadStats();
+
+// ── Animation loop ────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // Pulse rings animation
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const p   = pulses[i];
+    const age = (Date.now() - p.born) / 1000;
+    if (age > 2) {
+      scene.remove(p.mesh);
+      pulses.splice(i, 1);
+      continue;
+    }
+    p.mesh.scale.setScalar(1 + age * 3);
+    p.mesh.material.opacity = Math.max(0, 0.8 - age * 0.4);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+
+</body>
+</html>

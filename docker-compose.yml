@@ -1,0 +1,75 @@
+# docker-compose.yml
+version: "3.8"
+
+networks:
+  pulseearth:
+    driver: bridge
+
+volumes:
+  redpanda_data:
+  clickhouse_data:
+
+services:
+
+  # ── REDPANDA ────────────────────────────────────────────────────────────────
+  redpanda:
+    image: redpandadata/redpanda:v23.3.11
+    container_name: pulseearth-redpanda
+    networks: [pulseearth]
+    ports:
+      - "9092:9092"   # Kafka API — producers/consumers Python
+      - "9644:9644"   # Admin API — health checks
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=0.0.0.0:9092
+      - --advertise-kafka-addr=localhost:9092
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info", "--brokers=localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── REDPANDA CONSOLE ────────────────────────────────────────────────────────
+  redpanda-console:
+    image: redpandadata/console:v2.4.3
+    container_name: pulseearth-console
+    networks: [pulseearth]
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BROKERS: "redpanda:9092"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  # ── CLICKHOUSE ──────────────────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: pulseearth-clickhouse
+    networks: [pulseearth]
+    ports:
+      - "8123:8123"   # HTTP interface — requêtes SQL via curl/Python
+      - "9000:9000"   # Native protocol — clickhouse-driver Python
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: pulseearth
+      CLICKHOUSE_USER: pulse
+      CLICKHOUSE_PASSWORD: earth2026
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

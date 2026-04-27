@@ -1,0 +1,11 @@
+# models/staging/sources.yml
+version: 2
+
+sources:
+  - name: pulseearth
+    database: pulseearth
+    schema: pulseearth
+    tables:
+      - name: earthquakes
+      - name: wildfires
+      - name: pollution
